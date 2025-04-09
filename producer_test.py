@@ -56,7 +56,7 @@ def main():
     client = RabbitMQClient(AMQP_URL)
     client.declare_exchange(exchange_name)
     client.send_message(exchange_name, "session_queue", session_message)
-    client.send_message(exchange_name, "traffic_queue", traffic_message)
+    # client.send_message(exchange_name, "traffic_queue", traffic_message)
 
     client.close()
 

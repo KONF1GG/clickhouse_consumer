@@ -6,6 +6,7 @@ services:
       dockerfile: Dockerfile
     ports:
       - "9001:9000"
+      - "9002:8000"
     container_name: clickhouse_consumer
     restart: always
     env_file:
