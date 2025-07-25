@@ -41,73 +41,117 @@ class ClickHouseClient:
         if not session_data:
             raise ValueError("Session data is empty")
 
-        fields = []
-        values = []
+        # Поля которые отправляет freedom1.py в ch_save_session()
+        session_fields = [
+            'login', 'onu_mac', 'contract', 'auth_type', 'service',
+            'Acct-Session-Id', 'Acct-Unique-Session-Id', 
+            'Acct-Start-Time', 'Acct-Stop-Time', 'User-Name',
+            'NAS-IP-Address', 'NAS-Port-Id', 'NAS-Port-Type',
+            'Calling-Station-Id', 'Acct-Terminate-Cause', 
+            'Service-Type', 'Framed-Protocol', 'Framed-IP-Address',
+            'Framed-IPv6-Prefix', 'Delegated-IPv6-Prefix',
+            'Acct-Session-Time', 'Acct-Input-Octets', 'Acct-Output-Octets',
+            'Acct-Input-Packets', 'Acct-Output-Packets',
+            'ERX-IPv6-Acct-Input-Octets', 'ERX-IPv6-Acct-Output-Octets',
+            'ERX-IPv6-Acct-Input-Packets', 'ERX-IPv6-Acct-Output-Packets',
+            'ERX-IPv6-Acct-Input-Gigawords', 'ERX-IPv6-Acct-Output-Gigawords',
+            'ERX-Virtual-Router-Name', 'ERX-Service-Session',
+            'ADSL-Agent-Circuit-Id', 'ADSL-Agent-Remote-Id', 'GMT'
+        ]
 
+        # Обрабатываем временные поля
         time_fields = ["Acct-Start-Time", "Acct-Update-Time", "Acct-Stop-Time"]
+        for key in time_fields:
+            if key in session_data and isinstance(session_data[key], str):
+                session_data[key] = datetime.strptime(session_data[key], "%Y-%m-%d %H:%M:%S")
 
-        for key, value in session_data.items():
-            if key in time_fields and isinstance(value, str):
-                session_data[key] = datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
-                value = session_data[key] 
+        # Извлекаем значения в том же порядке что и в freedom1.py
+        values = []
+        for field in session_fields:
+            value = session_data.get(field)
+            if value is None:
+                if field == 'GMT':
+                    value = 5  # Как в freedom1.py
+                else:
+                    value = ''  # Пустая строка для NULL значений
+            values.append(value)
 
-            fields.append(f'"{key}"')
-            values.append(f"'{value}'" if isinstance(value, str) else value)
-
+        placeholders = ', '.join(['%s'] * len(session_fields))
+        fields_str = ', '.join([f'`{field}`' for field in session_fields])
+        
         query = f"""
-            INSERT INTO radius.radius_sessions (
-                {', '.join(fields)}
-            ) VALUES
+            INSERT INTO radius.radius_sessions_new 
+            ({fields_str}) 
+            VALUES ({placeholders})
         """
-        values_list = [session_data]
-        self.client.execute(query, values_list)
+        
+        self.client.execute(query, [values])
     
     def insert_traffic_batch(self, traffic_data_list):
         """Вставка пачки данных трафика в ClickHouse"""
         if not traffic_data_list:
             raise ValueError("Traffic data is empty")
 
-        all_fields = [
-            "`Acct-Unique-Session-Id`",
-            "`login`",
-            "`Acct-Input-Octets`",
-            "`Acct-Output-Octets`",
-            "`Acct-Input-Packets`",
-            "`Acct-Output-Packets`",
-            "`ERX-IPv6-Acct-Input-Octets`",
-            "`ERX-IPv6-Acct-Output-Octets`",
-            "`ERX-IPv6-Acct-Input-Packets`",
-            "`ERX-IPv6-Acct-Output-Packets`",
-            "`timestamp`"
+        # ВСЕ 11 полей которые отправляет freedom1.py в ch_save_traffic()
+        required_fields = [
+            'Acct-Unique-Session-Id',    # 1. ID сессии
+            'login',                     # 2. Логин
+            'timestamp',                 # 3. Время
+            'Acct-Input-Octets',         # 4. IPv4 вход байты
+            'Acct-Output-Octets',        # 5. IPv4 выход байты  
+            'Acct-Input-Packets',        # 6. IPv4 вход пакеты
+            'Acct-Output-Packets',       # 7. IPv4 выход пакеты
+            'ERX-IPv6-Acct-Input-Octets',    # 8. IPv6 вход байты
+            'ERX-IPv6-Acct-Output-Octets',   # 9. IPv6 выход байты
+            'ERX-IPv6-Acct-Input-Packets',   # 10. IPv6 вход пакеты
+            'ERX-IPv6-Acct-Output-Packets',  # 11. IPv6 выход пакеты
         ]
 
-        values = []
+        clickhouse_fields = [
+            'session_id', 'login', 'timestamp',
+            'ipv4_input_octets', 'ipv4_output_octets', 
+            'ipv4_input_packets', 'ipv4_output_packets',
+            'ipv6_input_octets', 'ipv6_output_octets',
+            'ipv6_input_packets', 'ipv6_output_packets'
+        ]
+
+        batch_data = []
         for data in traffic_data_list:
-            value_list = []
-            for field in all_fields:
-                field_name = field.strip("`")
-                if field_name in data:
-                    value = data[field_name]
-                else:
-                    if field_name == "timestamp":
-                        value = "now()"
-                    elif isinstance(data.get(field_name), str):
-                        value = "''"
-                    else:
-                        value = "0" 
+            missing_fields = []
+            for field in required_fields:
+                if field not in data:
+                    missing_fields.append(field)
+            
+            if missing_fields:
+                logging.warning(f"Отсутствуют поля: {missing_fields}")
+                continue
+            
+            row = [
+                data['Acct-Unique-Session-Id'],           # session_id
+                data['login'],                            # login
+                int(float(data['timestamp'])),            # timestamp
+                int(data['Acct-Input-Octets']),          # ipv4_input_octets
+                int(data['Acct-Output-Octets']),         # ipv4_output_octets
+                int(data['Acct-Input-Packets']),         # ipv4_input_packets
+                int(data['Acct-Output-Packets']),        # ipv4_output_packets
+                int(data['ERX-IPv6-Acct-Input-Octets']), # ipv6_input_octets
+                int(data['ERX-IPv6-Acct-Output-Octets']),# ipv6_output_octets
+                int(data['ERX-IPv6-Acct-Input-Packets']),# ipv6_input_packets
+                int(data['ERX-IPv6-Acct-Output-Packets']),# ipv6_output_packets
+            ]
+            batch_data.append(row)
 
-                value_list.append(f"'{value}'" if isinstance(value, str) else str(value))
+        if not batch_data:
+            raise ValueError("No valid traffic data to insert")
 
-            values.append(f"({', '.join(value_list)})")
-
+        fields_str = ', '.join([f'`{field}`' for field in clickhouse_fields])
         query = f"""
-            INSERT INTO radius.radius_traffic (
-                {', '.join(all_fields)}
-            ) VALUES
-                {', '.join(values)}
+            INSERT INTO radius.radius_traffic 
+            ({fields_str}) 
+            VALUES
         """
 
-        self.client.execute(query)
+        self.client.execute(query, batch_data)
 
 
 
