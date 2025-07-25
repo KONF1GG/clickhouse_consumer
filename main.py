@@ -10,23 +10,31 @@ from clickhouse_driver import Client
 import config
 from datetime import datetime
 
+
 # ============================== #
 #   Пользовательские исключения  #
 # ============================== #
 class TransientError(Exception):
     """Временная ошибка, можно повторить попытку"""
+
     pass
+
 
 class CriticalError(Exception):
     """Критическая ошибка, требуется вмешательство"""
+
     pass
+
 
 # ============================== #
 #   Настройка метрик Prometheus  #
 # ============================== #
-PROCESSED_MSG = Counter('processed_messages', 'Всего обработанных сообщений', ['queue'])
-FAILED_MSG = Counter('failed_messages', 'Всего неудачных сообщений', ['queue', 'reason'])
-PROCESS_TIME = Histogram('process_time_seconds', 'Время обработки сообщений', ['queue'])
+PROCESSED_MSG = Counter("processed_messages", "Всего обработанных сообщений", ["queue"])
+FAILED_MSG = Counter(
+    "failed_messages", "Всего неудачных сообщений", ["queue", "reason"]
+)
+PROCESS_TIME = Histogram("process_time_seconds", "Время обработки сообщений", ["queue"])
+
 
 # ==================== #
 #   Клиент ClickHouse  #
@@ -34,7 +42,7 @@ PROCESS_TIME = Histogram('process_time_seconds', 'Время обработки 
 class ClickHouseClient:
     def __init__(self, host, port, user, password):
         self.client = Client(host=host, port=port, user=user, password=password)
-    
+
     def insert_session(self, session_data):
         """Вставка данных сессии в ClickHouse"""
 
@@ -43,50 +51,73 @@ class ClickHouseClient:
 
         # Поля которые отправляет freedom1.py в ch_save_session()
         session_fields = [
-            'login', 'onu_mac', 'contract', 'auth_type', 'service',
-            'Acct-Session-Id', 'Acct-Unique-Session-Id', 
-            'Acct-Start-Time', 'Acct-Stop-Time', 'User-Name',
-            'NAS-IP-Address', 'NAS-Port-Id', 'NAS-Port-Type',
-            'Calling-Station-Id', 'Acct-Terminate-Cause', 
-            'Service-Type', 'Framed-Protocol', 'Framed-IP-Address',
-            'Framed-IPv6-Prefix', 'Delegated-IPv6-Prefix',
-            'Acct-Session-Time', 'Acct-Input-Octets', 'Acct-Output-Octets',
-            'Acct-Input-Packets', 'Acct-Output-Packets',
-            'ERX-IPv6-Acct-Input-Octets', 'ERX-IPv6-Acct-Output-Octets',
-            'ERX-IPv6-Acct-Input-Packets', 'ERX-IPv6-Acct-Output-Packets',
-            'ERX-IPv6-Acct-Input-Gigawords', 'ERX-IPv6-Acct-Output-Gigawords',
-            'ERX-Virtual-Router-Name', 'ERX-Service-Session',
-            'ADSL-Agent-Circuit-Id', 'ADSL-Agent-Remote-Id', 'GMT'
+            "login",
+            "onu_mac",
+            "contract",
+            "auth_type",
+            "service",
+            "Acct-Session-Id",
+            "Acct-Unique-Session-Id",
+            "Acct-Start-Time",
+            "Acct-Stop-Time",
+            "User-Name",
+            "NAS-IP-Address",
+            "NAS-Port-Id",
+            "NAS-Port-Type",
+            "Calling-Station-Id",
+            "Acct-Terminate-Cause",
+            "Service-Type",
+            "Framed-Protocol",
+            "Framed-IP-Address",
+            "Framed-IPv6-Prefix",
+            "Delegated-IPv6-Prefix",
+            "Acct-Session-Time",
+            "Acct-Input-Octets",
+            "Acct-Output-Octets",
+            "Acct-Input-Packets",
+            "Acct-Output-Packets",
+            "ERX-IPv6-Acct-Input-Octets",
+            "ERX-IPv6-Acct-Output-Octets",
+            "ERX-IPv6-Acct-Input-Packets",
+            "ERX-IPv6-Acct-Output-Packets",
+            "ERX-IPv6-Acct-Input-Gigawords",
+            "ERX-IPv6-Acct-Output-Gigawords",
+            "ERX-Virtual-Router-Name",
+            "ERX-Service-Session",
+            "ADSL-Agent-Circuit-Id",
+            "ADSL-Agent-Remote-Id",
+            "GMT",
         ]
 
         # Обрабатываем временные поля
         time_fields = ["Acct-Start-Time", "Acct-Update-Time", "Acct-Stop-Time"]
         for key in time_fields:
             if key in session_data and isinstance(session_data[key], str):
-                session_data[key] = datetime.strptime(session_data[key], "%Y-%m-%d %H:%M:%S")
+                session_data[key] = datetime.strptime(
+                    session_data[key], "%Y-%m-%d %H:%M:%S"
+                )
 
         # Извлекаем значения в том же порядке что и в freedom1.py
         values = []
         for field in session_fields:
             value = session_data.get(field)
             if value is None:
-                if field == 'GMT':
+                if field == "GMT":
                     value = 5  # Как в freedom1.py
                 else:
-                    value = ''  # Пустая строка для NULL значений
+                    value = ""  # Пустая строка для NULL значений
             values.append(value)
 
-        placeholders = ', '.join(['%s'] * len(session_fields))
-        fields_str = ', '.join([f'`{field}`' for field in session_fields])
-        
+        fields_str = ", ".join([f"`{field}`" for field in session_fields])
+
         query = f"""
             INSERT INTO radius.radius_sessions_new 
             ({fields_str}) 
-            VALUES ({placeholders})
+            VALUES
         """
-        
+
         self.client.execute(query, [values])
-    
+
     def insert_traffic_batch(self, traffic_data_list):
         """Вставка пачки данных трафика в ClickHouse"""
         if not traffic_data_list:
@@ -94,25 +125,31 @@ class ClickHouseClient:
 
         # ВСЕ 11 полей которые отправляет freedom1.py в ch_save_traffic()
         required_fields = [
-            'Acct-Unique-Session-Id',    # 1. ID сессии
-            'login',                     # 2. Логин
-            'timestamp',                 # 3. Время
-            'Acct-Input-Octets',         # 4. IPv4 вход байты
-            'Acct-Output-Octets',        # 5. IPv4 выход байты  
-            'Acct-Input-Packets',        # 6. IPv4 вход пакеты
-            'Acct-Output-Packets',       # 7. IPv4 выход пакеты
-            'ERX-IPv6-Acct-Input-Octets',    # 8. IPv6 вход байты
-            'ERX-IPv6-Acct-Output-Octets',   # 9. IPv6 выход байты
-            'ERX-IPv6-Acct-Input-Packets',   # 10. IPv6 вход пакеты
-            'ERX-IPv6-Acct-Output-Packets',  # 11. IPv6 выход пакеты
+            "Acct-Unique-Session-Id",  # 1. ID сессии
+            "login",  # 2. Логин
+            "timestamp",  # 3. Время
+            "Acct-Input-Octets",  # 4. IPv4 вход байты
+            "Acct-Output-Octets",  # 5. IPv4 выход байты
+            "Acct-Input-Packets",  # 6. IPv4 вход пакеты
+            "Acct-Output-Packets",  # 7. IPv4 выход пакеты
+            "ERX-IPv6-Acct-Input-Octets",  # 8. IPv6 вход байты
+            "ERX-IPv6-Acct-Output-Octets",  # 9. IPv6 выход байты
+            "ERX-IPv6-Acct-Input-Packets",  # 10. IPv6 вход пакеты
+            "ERX-IPv6-Acct-Output-Packets",  # 11. IPv6 выход пакеты
         ]
 
         clickhouse_fields = [
-            'session_id', 'login', 'timestamp',
-            'ipv4_input_octets', 'ipv4_output_octets', 
-            'ipv4_input_packets', 'ipv4_output_packets',
-            'ipv6_input_octets', 'ipv6_output_octets',
-            'ipv6_input_packets', 'ipv6_output_packets'
+            "session_id",
+            "login",
+            "timestamp",
+            "ipv4_input_octets",
+            "ipv4_output_octets",
+            "ipv4_input_packets",
+            "ipv4_output_packets",
+            "ipv6_input_octets",
+            "ipv6_output_octets",
+            "ipv6_input_packets",
+            "ipv6_output_packets",
         ]
 
         batch_data = []
@@ -121,30 +158,30 @@ class ClickHouseClient:
             for field in required_fields:
                 if field not in data:
                     missing_fields.append(field)
-            
+
             if missing_fields:
                 logging.warning(f"Отсутствуют поля: {missing_fields}")
                 continue
-            
+
             row = [
-                data['Acct-Unique-Session-Id'],           # session_id
-                data['login'],                            # login
-                int(float(data['timestamp'])),            # timestamp
-                int(data['Acct-Input-Octets']),          # ipv4_input_octets
-                int(data['Acct-Output-Octets']),         # ipv4_output_octets
-                int(data['Acct-Input-Packets']),         # ipv4_input_packets
-                int(data['Acct-Output-Packets']),        # ipv4_output_packets
-                int(data['ERX-IPv6-Acct-Input-Octets']), # ipv6_input_octets
-                int(data['ERX-IPv6-Acct-Output-Octets']),# ipv6_output_octets
-                int(data['ERX-IPv6-Acct-Input-Packets']),# ipv6_input_packets
-                int(data['ERX-IPv6-Acct-Output-Packets']),# ipv6_output_packets
+                data["Acct-Unique-Session-Id"],  # session_id
+                data["login"],  # login
+                int(float(data["timestamp"])),  # timestamp
+                int(data["Acct-Input-Octets"]),  # ipv4_input_octets
+                int(data["Acct-Output-Octets"]),  # ipv4_output_octets
+                int(data["Acct-Input-Packets"]),  # ipv4_input_packets
+                int(data["Acct-Output-Packets"]),  # ipv4_output_packets
+                int(data["ERX-IPv6-Acct-Input-Octets"]),  # ipv6_input_octets
+                int(data["ERX-IPv6-Acct-Output-Octets"]),  # ipv6_output_octets
+                int(data["ERX-IPv6-Acct-Input-Packets"]),  # ipv6_input_packets
+                int(data["ERX-IPv6-Acct-Output-Packets"]),  # ipv6_output_packets
             ]
             batch_data.append(row)
 
         if not batch_data:
             raise ValueError("No valid traffic data to insert")
 
-        fields_str = ', '.join([f'`{field}`' for field in clickhouse_fields])
+        fields_str = ", ".join([f"`{field}`" for field in clickhouse_fields])
         query = f"""
             INSERT INTO radius.radius_traffic 
             ({fields_str}) 
@@ -154,15 +191,13 @@ class ClickHouseClient:
         self.client.execute(query, batch_data)
 
 
-
-
-
 clickhouse_client = ClickHouseClient(
     host=config.CLICKHOUSE_HOST,
     port=config.CLICKHOUSE_PORT,
     user=config.CLICKHOUSE_USER,
     password=config.CLICKHOUSE_PASSWORD,
 )
+
 
 # ==================== #
 #   Базовый класс потребителя  #
@@ -178,12 +213,13 @@ class RabbitConsumer:
         self._running = False
         self.clickhouse_client = clickhouse_client
 
-
         # Настройка SSL
         self._ssl_enabled = False
         if config.CA_CERT_PATH:
             self._ssl_context = ssl.create_default_context(cafile=config.CA_CERT_PATH)
-            self._ssl_context.load_cert_chain(certfile=config.CLIENT_CERT_PATH, keyfile=config.CLIENT_KEY_PATH)
+            self._ssl_context.load_cert_chain(
+                certfile=config.CLIENT_CERT_PATH, keyfile=config.CLIENT_KEY_PATH
+            )
             self._ssl_enabled = True
 
     def _connect(self):
@@ -206,34 +242,46 @@ class RabbitConsumer:
                 self._setup_infrastructure()
                 return
             except Exception as e:
-                logging.error(f"Ошибка переподключения: {e}. Повтор через {self._reconnect_delay}с")
+                logging.error(
+                    f"Ошибка переподключения: {e}. Повтор через {self._reconnect_delay}с"
+                )
                 time.sleep(self._reconnect_delay)
-                self._reconnect_delay = min(self._reconnect_delay * 2, self._max_reconnect_delay)
+                self._reconnect_delay = min(
+                    self._reconnect_delay * 2, self._max_reconnect_delay
+                )
 
     def _setup_infrastructure(self):
         """Настройка инфраструктуры очередей и exchange"""
         # Настройка Dead Letter Exchange (DLX)
-        self._channel.exchange_declare(exchange='radius_dlx', exchange_type='direct', durable=True)
-        self._channel.queue_declare(queue='radius_dlq', durable=True, arguments={'x-queue-mode': 'lazy'})
-        self._channel.queue_bind(queue='radius_dlq', exchange='radius_dlx', routing_key='dlq')
+        self._channel.exchange_declare(
+            exchange="radius_dlx", exchange_type="direct", durable=True
+        )
+        self._channel.queue_declare(
+            queue="radius_dlq", durable=True, arguments={"x-queue-mode": "lazy"}
+        )
+        self._channel.queue_bind(
+            queue="radius_dlq", exchange="radius_dlx", routing_key="dlq"
+        )
 
         # Настройка основного exchange
-        self._channel.exchange_declare(exchange='sessions_traffic_exchange', exchange_type='direct', durable=True)
+        self._channel.exchange_declare(
+            exchange="sessions_traffic_exchange", exchange_type="direct", durable=True
+        )
 
         # Настройка основной очереди и привязка к exchange
         self._channel.queue_declare(
             queue=self._queue,
             durable=True,
             arguments={
-                'x-dead-letter-exchange': 'radius_dlx',
-                'x-dead-letter-routing-key': 'dlq',
-                'x-queue-type': 'classic'
-            }
+                "x-dead-letter-exchange": "radius_dlx",
+                "x-dead-letter-routing-key": "dlq",
+                "x-queue-type": "classic",
+            },
         )
         self._channel.queue_bind(
             queue=self._queue,
-            exchange='sessions_traffic_exchange',
-            routing_key=self._queue
+            exchange="sessions_traffic_exchange",
+            routing_key=self._queue,
         )
         self._channel.basic_qos(prefetch_count=int(config.PREFETCH_COUNT))
 
@@ -254,6 +302,7 @@ class RabbitConsumer:
     def _send_to_dlq(self, body, error):
         """Отправка сообщения в DLQ"""
         pass  # Здесь можно добавить дополнительную логику, например, запись в лог
+
 
 # ==================== #
 #  Потребитель сессий  #
@@ -296,16 +345,16 @@ class SessionConsumer(RabbitConsumer):
         except TransientError as e:
             logging.warning(f"Временная ошибка: {e}")
             channel.basic_nack(method.delivery_tag, requeue=True)
-            FAILED_MSG.labels(queue=self._queue, reason='transient').inc()
+            FAILED_MSG.labels(queue=self._queue, reason="transient").inc()
         except CriticalError as e:
             logging.error(f"Критическая ошибка: {e}")
             channel.basic_nack(method.delivery_tag, requeue=False)
-            FAILED_MSG.labels(queue=self._queue, reason='critical').inc()
+            FAILED_MSG.labels(queue=self._queue, reason="critical").inc()
             self._send_to_dlq(body, str(e))
         except Exception as e:
             logging.exception("Непредвиденная ошибка")
             channel.basic_nack(method.delivery_tag, requeue=False)
-            FAILED_MSG.labels(queue=self._queue, reason='unexpected').inc()
+            FAILED_MSG.labels(queue=self._queue, reason="unexpected").inc()
             self._send_to_dlq(body, str(e))
 
     def _process(self, message):
@@ -367,9 +416,14 @@ class TrafficConsumer(RabbitConsumer):
 
     def _check_and_send_batch(self):
         """Проверка и отправка пачки сообщений, если прошло достаточно времени"""
-        if time.time() - self._last_batch_time > self._batch_interval and self._traffic_batch:
+        if (
+            time.time() - self._last_batch_time > self._batch_interval
+            and self._traffic_batch
+        ):
             self._insert_batch()
-            self._last_batch_time = time.time()  # Обновляем время последней отправки пачки
+            self._last_batch_time = (
+                time.time()
+            )  # Обновляем время последней отправки пачки
 
     def _insert_batch(self):
         """Вставка пачки сообщений о трафике в Clickhouse"""
@@ -390,7 +444,9 @@ class TrafficConsumer(RabbitConsumer):
             for _, tag in self._traffic_batch:
                 self._channel.basic_nack(tag, requeue=False)
                 self._send_to_dlq(json.dumps(messages), str(e))
-            FAILED_MSG.labels(queue=self._queue, reason='batch_failure').inc(len(self._traffic_batch))
+            FAILED_MSG.labels(queue=self._queue, reason="batch_failure").inc(
+                len(self._traffic_batch)
+            )
         finally:
             self._traffic_batch.clear()  # Очищаем пакет сообщений после отправки
 
@@ -401,18 +457,14 @@ class TrafficConsumer(RabbitConsumer):
         super().stop()
 
 
-
 # ==================== #
 #   Основной запуск    #
 # ==================== #
 if __name__ == "__main__":
     logging.basicConfig(
         level=logging.WARNING,
-        format='%(asctime)s [%(levelname)s] %(message)s',
-        handlers=[
-            logging.FileHandler(config.LOG_PATH),
-            logging.StreamHandler()
-        ]
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        handlers=[logging.FileHandler(config.LOG_PATH), logging.StreamHandler()],
     )
 
     start_http_server(int(config.METRICS_PORT))
@@ -435,14 +487,14 @@ if __name__ == "__main__":
     # Создаем экземпляры для каждого потребителя с разными клиентами
     session_consumer = SessionConsumer(
         amqp_url=config.AMQP_URL,
-        queue_name='session_queue',
-        clickhouse_client=clickhouse_client_session
+        queue_name="session_queue",
+        clickhouse_client=clickhouse_client_session,
     )
 
     traffic_consumer = TrafficConsumer(
         amqp_url=config.AMQP_URL,
-        queue_name='traffic_queue',
-        clickhouse_client=clickhouse_client_traffic
+        queue_name="traffic_queue",
+        clickhouse_client=clickhouse_client_traffic,
     )
 
     def signal_handler(sig, frame):
