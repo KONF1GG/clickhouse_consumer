@@ -8,7 +8,6 @@ from prometheus_client import Counter, Histogram, start_http_server
 import threading
 from clickhouse_driver import Client
 import config
-from datetime import datetime
 
 
 # ============================== #
@@ -89,26 +88,172 @@ class ClickHouseClient:
             "GMT",
         ]
 
-        # Обрабатываем временные поля
-        time_fields = ["Acct-Start-Time", "Acct-Update-Time", "Acct-Stop-Time"]
+        # Обрабатываем временные поля - оставляем их как строки для ClickHouse
+        time_fields = [
+            "Acct-Start-Time",
+            "Acct-Update-Time",
+            "Acct-Stop-Time",
+            "Event-Timestamp",
+        ]
         for key in time_fields:
-            if key in session_data and isinstance(session_data[key], str):
-                session_data[key] = datetime.strptime(
-                    session_data[key], "%Y-%m-%d %H:%M:%S"
-                )
+            if key in session_data and session_data[key] is not None:
+                # Если это уже строка, проверяем формат и нормализуем
+                if isinstance(session_data[key], str):
+                    # Обрабатываем Event-Timestamp который приходит в формате "Jul 25 2025 13:26:16 +05"
+                    if key == "Event-Timestamp" and " +" in session_data[key]:
+                        try:
+                            # Парсим и переформатируем в стандартный формат
+                            import datetime
 
-        # Извлекаем значения в том же порядке что и в freedom1.py
+                            # Убираем часовой пояс для парсинга
+                            time_part = session_data[key].split(" +")[0]
+                            dt = datetime.datetime.strptime(
+                                time_part, "%b %d %Y %H:%M:%S"
+                            )
+                            session_data[key] = dt.strftime("%Y-%m-%d %H:%M:%S")
+                        except Exception as e:
+                            logging.warning(
+                                f"Не удалось парсить Event-Timestamp '{session_data[key]}': {e}"
+                            )
+                            # Оставляем как есть, если не удалось парсить
+                    continue
+                # Если это объект datetime, конвертируем в строку
+                elif hasattr(session_data[key], "strftime"):
+                    session_data[key] = session_data[key].strftime("%Y-%m-%d %H:%M:%S")
+                # Если это число (timestamp), конвертируем в строку
+                elif isinstance(session_data[key], (int, float)):
+                    import datetime
+
+                    dt = datetime.datetime.fromtimestamp(session_data[key])
+                    session_data[key] = dt.strftime("%Y-%m-%d %H:%M:%S")
+
+        # Удаляем все поля, которые не входят в session_fields, чтобы избежать проблем с ClickHouse
+        keys_to_remove = []
+        for key in session_data.keys():
+            if key not in session_fields:
+                keys_to_remove.append(key)
+
+        for key in keys_to_remove:
+            del session_data[key]
+
+        # Список полей, которые должны быть DateTime в ClickHouse
+        datetime_fields = ["Acct-Start-Time", "Acct-Stop-Time"]
+
+        # Список полей, которые должны быть числовыми в ClickHouse
+        numeric_fields = [
+            "Acct-Session-Time",
+            "Acct-Input-Octets",
+            "Acct-Output-Octets",
+            "Acct-Input-Packets",
+            "Acct-Output-Packets",
+            "ERX-IPv6-Acct-Input-Octets",
+            "ERX-IPv6-Acct-Output-Octets",
+            "ERX-IPv6-Acct-Input-Packets",
+            "ERX-IPv6-Acct-Output-Packets",
+            "ERX-IPv6-Acct-Input-Gigawords",
+            "ERX-IPv6-Acct-Output-Gigawords",
+            "GMT",
+        ]
+
+        # Формируем список полей и значений, исключая пустые DateTime поля
+        actual_fields = []
         values = []
+
         for field in session_fields:
             value = session_data.get(field)
-            if value is None:
+
+            # Для DateTime полей: если значение пустое или None, просто пропускаем поле
+            if field in datetime_fields and (value is None or value == ""):
+                continue
+
+            # Для поля GMT устанавливаем значение по умолчанию
+            if value is None or value == "":
                 if field == "GMT":
-                    value = 5  # Как в freedom1.py
+                    value = 5  # Числовое значение по умолчанию
+                elif field in numeric_fields:
+                    value = 0  # Для числовых полей 0 по умолчанию
                 else:
                     value = ""  # Пустая строка для NULL значений
+            else:
+                # Обрабатываем числовые поля
+                if field in numeric_fields:
+                    try:
+                        # Преобразуем в целое число
+                        if isinstance(value, str):
+                            value = int(
+                                float(value)
+                            )  # float потом int для обработки "123.0"
+                        elif isinstance(value, float):
+                            value = int(value)
+                        elif not isinstance(value, int):
+                            value = int(str(value))
+                    except (ValueError, TypeError):
+                        logging.warning(
+                            f"Не удалось преобразовать {field}='{value}' в число, устанавливаем 0"
+                        )
+                        value = 0
+                # Обрабатываем DateTime поля
+                elif field in datetime_fields:
+                    if isinstance(value, str) and value.strip():
+                        try:
+                            # Парсим строку в datetime объект
+                            import datetime
+
+                            # Пытаемся различные форматы
+                            if ":" in value and "-" in value:  # YYYY-MM-DD HH:MM:SS
+                                value = datetime.datetime.strptime(
+                                    value, "%Y-%m-%d %H:%M:%S"
+                                )
+                            elif "/" in value:  # MM/DD/YYYY HH:MM:SS или другие форматы
+                                # Добавьте другие форматы при необходимости
+                                value = datetime.datetime.strptime(
+                                    value, "%m/%d/%Y %H:%M:%S"
+                                )
+                            else:
+                                # Если формат неизвестен, пробуем стандартный
+                                value = datetime.datetime.strptime(
+                                    value, "%Y-%m-%d %H:%M:%S"
+                                )
+                        except ValueError as e:
+                            logging.warning(
+                                f"Не удалось парсить DateTime поле {field}='{value}': {e}"
+                            )
+                            # Если не удалось парсить, пропускаем поле
+                            continue
+                    elif hasattr(value, "strftime"):
+                        # Если это уже datetime объект, оставляем как есть
+                        pass
+                    elif isinstance(value, (int, float)):
+                        import datetime
+
+                        value = datetime.datetime.fromtimestamp(value)
+                    else:
+                        # Если значение не подходит для DateTime, пропускаем поле
+                        continue
+                # Для всех остальных полей преобразуем в строки
+                else:
+                    if not isinstance(value, str):
+                        if isinstance(value, (int, float)):
+                            value = str(value)
+                        elif hasattr(value, "strftime"):
+                            value = value.strftime("%Y-%m-%d %H:%M:%S")
+                        elif value is None:
+                            value = ""
+                        else:
+                            value = str(value)
+
+                    # Убеждаемся что это строка для нечисловых полей
+                    if (
+                        field not in numeric_fields
+                        and not isinstance(value, str)
+                        and value is not None
+                    ):
+                        value = str(value) if value is not None else ""
+
+            actual_fields.append(field)
             values.append(value)
 
-        fields_str = ", ".join([f"`{field}`" for field in session_fields])
+        fields_str = ", ".join([f"`{field}`" for field in actual_fields])
 
         query = f"""
             INSERT INTO radius.radius_sessions_new 
@@ -116,7 +261,19 @@ class ClickHouseClient:
             VALUES
         """
 
-        self.client.execute(query, [values])
+        try:
+            self.client.execute(query, [values])
+        except Exception as e:
+            # Логируем детальную информацию об ошибке
+            import traceback
+
+            logging.error("ClickHouse error details:")
+            logging.error(f"Query: {query}")
+            logging.error(f"Values: {values}")
+            logging.error(f"Values types: {[type(v).__name__ for v in values]}")
+            logging.error(f"Exception: {e}")
+            logging.error(f"Traceback: {traceback.format_exc()}")
+            raise
 
     def insert_traffic_batch(self, traffic_data_list):
         """Вставка пачки данных трафика в ClickHouse"""
@@ -138,25 +295,11 @@ class ClickHouseClient:
             "ERX-IPv6-Acct-Output-Packets",  # 11. IPv6 выход пакеты
         ]
 
-        clickhouse_fields = [
-            "session_id",
-            "login",
-            "timestamp",
-            "ipv4_input_octets",
-            "ipv4_output_octets",
-            "ipv4_input_packets",
-            "ipv4_output_packets",
-            "ipv6_input_octets",
-            "ipv6_output_octets",
-            "ipv6_input_packets",
-            "ipv6_output_packets",
-        ]
-
         batch_data = []
         for data in traffic_data_list:
             missing_fields = []
             for field in required_fields:
-                if field not in data:
+                if field not in data and field != "timestamp":
                     missing_fields.append(field)
 
             if missing_fields:
@@ -164,24 +307,24 @@ class ClickHouseClient:
                 continue
 
             row = [
-                data["Acct-Unique-Session-Id"],  # session_id
-                data["login"],  # login
-                int(float(data["timestamp"])),  # timestamp
-                int(data["Acct-Input-Octets"]),  # ipv4_input_octets
-                int(data["Acct-Output-Octets"]),  # ipv4_output_octets
-                int(data["Acct-Input-Packets"]),  # ipv4_input_packets
-                int(data["Acct-Output-Packets"]),  # ipv4_output_packets
-                int(data["ERX-IPv6-Acct-Input-Octets"]),  # ipv6_input_octets
-                int(data["ERX-IPv6-Acct-Output-Octets"]),  # ipv6_output_octets
-                int(data["ERX-IPv6-Acct-Input-Packets"]),  # ipv6_input_packets
-                int(data["ERX-IPv6-Acct-Output-Packets"]),  # ipv6_output_packets
+                data["Acct-Unique-Session-Id"],
+                data["login"],
+                int(float(data["timestamp"])),
+                int(data["Acct-Input-Octets"]),
+                int(data["Acct-Output-Octets"]),
+                int(data["Acct-Input-Packets"]),
+                int(data["Acct-Output-Packets"]),
+                int(data["ERX-IPv6-Acct-Input-Octets"]),
+                int(data["ERX-IPv6-Acct-Output-Octets"]),
+                int(data["ERX-IPv6-Acct-Input-Packets"]),
+                int(data["ERX-IPv6-Acct-Output-Packets"]),
             ]
             batch_data.append(row)
 
         if not batch_data:
             raise ValueError("No valid traffic data to insert")
 
-        fields_str = ", ".join([f"`{field}`" for field in clickhouse_fields])
+        fields_str = ", ".join([f"`{field}`" for field in required_fields])
         query = f"""
             INSERT INTO radius.radius_traffic 
             ({fields_str}) 
@@ -360,8 +503,12 @@ class SessionConsumer(RabbitConsumer):
     def _process(self, message):
         """Обработка сообщения о сессии"""
         try:
-            clickhouse_client.insert_session(message)
+            # Добавляем логирование для отладки
+            logging.debug(f"Обрабатываем сессию: {message}")
+            self.clickhouse_client.insert_session(message)
         except Exception as e:
+            # Логируем детали ошибки
+            logging.error(f"Ошибка при записи сессии. Данные: {message}. Ошибка: {e}")
             raise TransientError(f"Не удалось записать сессию: {e}")
 
 
@@ -462,7 +609,7 @@ class TrafficConsumer(RabbitConsumer):
 # ==================== #
 if __name__ == "__main__":
     logging.basicConfig(
-        level=logging.WARNING,
+        level=logging.INFO,  # Изменено с WARNING на INFO для отладки
         format="%(asctime)s [%(levelname)s] %(message)s",
         handlers=[logging.FileHandler(config.LOG_PATH), logging.StreamHandler()],
     )
