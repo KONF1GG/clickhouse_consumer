@@ -26,80 +26,64 @@ logging.basicConfig(
 # ----------------------------- #
 #          PROMETHEUS           #
 # ----------------------------- #
-# Общие метрики обработки сообщений
-TOTAL_MESSAGES = Counter(
-    "radius_messages_total",
-    "Total processed messages",
+
+# Основные метрики обработки сообщений
+MESSAGES_PROCESSED_TOTAL = Counter(
+    "radius_messages_processed_total",
+    "Total number of processed messages",
     [
         "queue",
         "status",
-    ],  # status: success, validation_error, transient_error, critical_error
+    ],  # status: success, validation_error, json_error, critical_error
 )
 
-PROCESS_DURATION = Histogram(
-    "radius_process_duration_seconds",
-    "Time spent processing a message",
-    ["queue", "operation"],  # operation: validation, insertion, batch_flush
-    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
+MESSAGES_PROCESSING_DURATION = Histogram(
+    "radius_message_processing_duration_seconds",
+    "Time spent processing individual messages",
+    ["queue"],
+    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0),
 )
 
-# Метрики валидации
-VALIDATION_ERRORS = Counter(
-    "radius_validation_errors_total",
-    "Total validation errors by field",
-    ["queue", "field", "error_type"],
-)
-
-# Метрики ClickHouse
-CLICKHOUSE_OPERATIONS = Counter(
+# ClickHouse операции
+CLICKHOUSE_OPERATIONS_TOTAL = Counter(
     "radius_clickhouse_operations_total",
     "Total ClickHouse operations",
-    ["table", "operation", "status"],  # operation: insert, batch_insert
+    [
+        "table",
+        "operation",
+        "status",
+    ],  # operation: insert, batch_insert; status: success, error
 )
 
-CLICKHOUSE_DURATION = Histogram(
+CLICKHOUSE_OPERATION_DURATION = Histogram(
     "radius_clickhouse_operation_duration_seconds",
-    "ClickHouse operation duration",
+    "Duration of ClickHouse operations",
     ["table", "operation"],
     buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
 )
 
 CLICKHOUSE_BATCH_SIZE = Histogram(
-    "radius_clickhouse_batch_size",
-    "Size of batches sent to ClickHouse",
+    "radius_clickhouse_batch_size_records",
+    "Number of records in ClickHouse batch operations",
     ["table"],
     buckets=(1, 5, 10, 25, 50, 100, 250, 500, 1000),
 )
 
-# Метрики RabbitMQ
-RABBITMQ_CONNECTIONS = Counter(
-    "radius_rabbitmq_connections_total",
-    "Total RabbitMQ connection attempts",
-    ["queue", "status"],  # status: success, failed, reconnect
+# Системные метрики
+APPLICATION_UP = Gauge(
+    "radius_application_up",
+    "Application health status (1=up, 0=down)",
+    ["component"],  # component: sessions_consumer, traffic_consumer, clickhouse
 )
 
-QUEUE_DEPTH = Gauge("radius_queue_depth", "Current queue depth", ["queue"])
+MEMORY_USAGE_BYTES = Gauge("radius_memory_usage_bytes", "Current memory usage in bytes")
 
-# Метрики здоровья системы
-SYSTEM_HEALTH = Gauge(
-    "radius_system_health",
-    "System health status (1=healthy, 0=unhealthy)",
-    ["component"],  # component: clickhouse, rabbitmq, validation
+# Метрики ошибок
+VALIDATION_ERRORS_TOTAL = Counter(
+    "radius_validation_errors_total",
+    "Total validation errors by field and error type",
+    ["queue", "field", "error_type"],
 )
-
-# Метрики производительности
-ACTIVE_CONNECTIONS = Gauge(
-    "radius_active_connections", "Number of active connections", ["type"]
-)
-
-BATCH_PROCESSING_TIME = Histogram(
-    "radius_batch_processing_seconds",
-    "Time to process a batch of messages",
-    ["queue"],
-    buckets=(0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0),
-)
-
-MEMORY_USAGE = Gauge("radius_memory_usage_bytes", "Memory usage in bytes")
 
 
 # ----------------------------- #
@@ -114,41 +98,37 @@ class ClickHouseClient:
             password=config.CLICKHOUSE_PASSWORD,
         )
         # Устанавливаем начальное состояние здоровья
-        SYSTEM_HEALTH.labels(component="clickhouse").set(1)
+        APPLICATION_UP.labels(component="clickhouse").set(1)
 
     def insert_session(self, data: Dict[str, Any]) -> None:
         """Insert single session into ClickHouse (data already validated)."""
         try:
             # Валидация и подготовка данных
-            with PROCESS_DURATION.labels(
-                queue="session_queue", operation="validation"
+            with CLICKHOUSE_OPERATION_DURATION.labels(
+                table="radius_sessions_new", operation="insert"
             ).time():
                 validated_data = DataValidator.validate_session_data(data)
                 row = prepare_session_row(validated_data)
 
-            # Вставка в ClickHouse
-            with CLICKHOUSE_DURATION.labels(
-                table="radius_sessions_new", operation="insert"
-            ).time():
                 self.client.execute(
                     "INSERT INTO radius.radius_sessions_new (*) VALUES",
                     [row],
                 )
 
             # Метрики успеха
-            CLICKHOUSE_OPERATIONS.labels(
+            CLICKHOUSE_OPERATIONS_TOTAL.labels(
                 table="radius_sessions_new", operation="insert", status="success"
             ).inc()
 
-            SYSTEM_HEALTH.labels(component="clickhouse").set(1)
+            APPLICATION_UP.labels(component="clickhouse").set(1)
 
         except Exception as e:
             # Логируем критическую ошибку
             logging.error(f"ClickHouse session insert error: {e}")
-            CLICKHOUSE_OPERATIONS.labels(
+            CLICKHOUSE_OPERATIONS_TOTAL.labels(
                 table="radius_sessions_new", operation="insert", status="error"
             ).inc()
-            SYSTEM_HEALTH.labels(component="clickhouse").set(0)
+            APPLICATION_UP.labels(component="clickhouse").set(0)
             raise
 
     def insert_traffic_batch(self, batch: List[Dict[str, Any]]) -> None:
@@ -158,38 +138,34 @@ class ClickHouseClient:
 
         try:
             # Подготовка данных для вставки
-            with PROCESS_DURATION.labels(
-                queue="traffic_queue", operation="preparation"
+            with CLICKHOUSE_OPERATION_DURATION.labels(
+                table="radius_traffic", operation="batch_insert"
             ).time():
                 validated_rows = []
                 for item in batch:
                     validated_data = DataValidator.validate_traffic_data(item)
                     validated_rows.append(prepare_traffic_row(validated_data))
 
-            # Вставка батча в ClickHouse
-            with CLICKHOUSE_DURATION.labels(
-                table="radius_traffic", operation="batch_insert"
-            ).time():
                 self.client.execute(
                     "INSERT INTO radius.radius_traffic (*) VALUES",
                     validated_rows,
                 )
 
             # Метрики успеха
-            CLICKHOUSE_OPERATIONS.labels(
+            CLICKHOUSE_OPERATIONS_TOTAL.labels(
                 table="radius_traffic", operation="batch_insert", status="success"
             ).inc()
 
             CLICKHOUSE_BATCH_SIZE.labels(table="radius_traffic").observe(len(batch))
-            SYSTEM_HEALTH.labels(component="clickhouse").set(1)
+            APPLICATION_UP.labels(component="clickhouse").set(1)
 
         except Exception as e:
             # Логируем критическую ошибку
             logging.error(f"ClickHouse traffic batch insert error: {e}")
-            CLICKHOUSE_OPERATIONS.labels(
+            CLICKHOUSE_OPERATIONS_TOTAL.labels(
                 table="radius_traffic", operation="batch_insert", status="error"
             ).inc()
-            SYSTEM_HEALTH.labels(component="clickhouse").set(0)
+            APPLICATION_UP.labels(component="clickhouse").set(0)
             raise
 
 
@@ -628,13 +604,13 @@ class SessionConsumer(RabbitConsumer):
     def __init__(self) -> None:
         super().__init__(queue="session_queue")
         self.ch_client = ClickHouseClient()
+        APPLICATION_UP.labels(component="sessions_consumer").set(1)
 
     def start(self) -> None:
         self.running = True
         try:
             self.connect()
-            RABBITMQ_CONNECTIONS.labels(queue=self.queue, status="success").inc()
-            SYSTEM_HEALTH.labels(component="rabbitmq").set(1)
+            APPLICATION_UP.labels(component="sessions_consumer").set(1)
 
             for method, _, body in self.channel.consume(
                 self.queue, inactivity_timeout=1
@@ -647,18 +623,19 @@ class SessionConsumer(RabbitConsumer):
 
         except Exception as e:
             logging.error(f"SessionConsumer failed: {e}")
-            RABBITMQ_CONNECTIONS.labels(queue=self.queue, status="failed").inc()
-            SYSTEM_HEALTH.labels(component="rabbitmq").set(0)
+            APPLICATION_UP.labels(component="sessions_consumer").set(0)
             raise
 
     def _handle(self, body: bytes, method) -> None:
-        with PROCESS_DURATION.labels(queue=self.queue, operation="total").time():
+        with MESSAGES_PROCESSING_DURATION.labels(queue=self.queue).time():
             try:
                 data = json.loads(body)
             except json.JSONDecodeError as e:
                 logging.error(f"Session JSON decode failed: {e}")
                 self.channel.basic_nack(method.delivery_tag, requeue=False)
-                TOTAL_MESSAGES.labels(queue=self.queue, status="json_error").inc()
+                MESSAGES_PROCESSED_TOTAL.labels(
+                    queue=self.queue, status="json_error"
+                ).inc()
                 return
 
             # Валидация данных
@@ -667,19 +644,28 @@ class SessionConsumer(RabbitConsumer):
             except ValidationError as e:
                 logging.warning(f"Session validation failed: {e}")
                 self.channel.basic_nack(method.delivery_tag, requeue=False)
-                TOTAL_MESSAGES.labels(queue=self.queue, status="validation_error").inc()
+                MESSAGES_PROCESSED_TOTAL.labels(
+                    queue=self.queue, status="validation_error"
+                ).inc()
+                VALIDATION_ERRORS_TOTAL.labels(
+                    queue=self.queue, field=e.field, error_type=type(e).__name__
+                ).inc()
                 return
 
             # Если всё ок — вставляем в ClickHouse
             try:
                 self.ch_client.insert_session(data)
                 self.channel.basic_ack(method.delivery_tag)
-                TOTAL_MESSAGES.labels(queue=self.queue, status="success").inc()
+                MESSAGES_PROCESSED_TOTAL.labels(
+                    queue=self.queue, status="success"
+                ).inc()
 
             except Exception as e:
                 logging.exception("Session processing failed")
                 self.channel.basic_nack(method.delivery_tag, requeue=False)
-                TOTAL_MESSAGES.labels(queue=self.queue, status="critical_error").inc()
+                MESSAGES_PROCESSED_TOTAL.labels(
+                    queue=self.queue, status="critical_error"
+                ).inc()
 
 
 # ----------------------------- #
@@ -693,13 +679,13 @@ class TrafficConsumer(RabbitConsumer):
         self.tags: List[int] = []
         self.last_flush = time.time()
         self.flush_interval = 5  # секунд
+        APPLICATION_UP.labels(component="traffic_consumer").set(1)
 
     def start(self) -> None:
         self.running = True
         try:
             self.connect()
-            RABBITMQ_CONNECTIONS.labels(queue=self.queue, status="success").inc()
-            SYSTEM_HEALTH.labels(component="rabbitmq").set(1)
+            APPLICATION_UP.labels(component="traffic_consumer").set(1)
 
             for method, _, body in self.channel.consume(
                 self.queue, inactivity_timeout=1
@@ -713,8 +699,7 @@ class TrafficConsumer(RabbitConsumer):
 
         except Exception as e:
             logging.error(f"TrafficConsumer failed: {e}")
-            RABBITMQ_CONNECTIONS.labels(queue=self.queue, status="failed").inc()
-            SYSTEM_HEALTH.labels(component="rabbitmq").set(0)
+            APPLICATION_UP.labels(component="traffic_consumer").set(0)
             raise
 
     def _handle(self, body: bytes, method) -> None:
@@ -723,7 +708,7 @@ class TrafficConsumer(RabbitConsumer):
         except json.JSONDecodeError as e:
             logging.error(f"Traffic JSON decode failed: {e}")
             self.channel.basic_nack(method.delivery_tag, requeue=False)
-            TOTAL_MESSAGES.labels(queue=self.queue, status="json_error").inc()
+            MESSAGES_PROCESSED_TOTAL.labels(queue=self.queue, status="json_error").inc()
             return
 
         # Валидация данных
@@ -732,7 +717,12 @@ class TrafficConsumer(RabbitConsumer):
         except ValidationError as e:
             logging.warning(f"Traffic validation failed: {e}")
             self.channel.basic_nack(method.delivery_tag, requeue=False)
-            TOTAL_MESSAGES.labels(queue=self.queue, status="validation_error").inc()
+            MESSAGES_PROCESSED_TOTAL.labels(
+                queue=self.queue, status="validation_error"
+            ).inc()
+            VALIDATION_ERRORS_TOTAL.labels(
+                queue=self.queue, field=e.field, error_type=type(e).__name__
+            ).inc()
             return
 
         # Если всё ок — добавляем в batch
@@ -758,36 +748,35 @@ class TrafficConsumer(RabbitConsumer):
 
         batch_size = len(self.batch)
 
-        with PROCESS_DURATION.labels(queue=self.queue, operation="batch_flush").time():
-            try:
-                self.ch_client.insert_traffic_batch(self.batch)
+        try:
+            self.ch_client.insert_traffic_batch(self.batch)
 
-                # Подтверждаем все сообщения в батче
-                for tag in self.tags:
-                    self.channel.basic_ack(tag)
+            # Подтверждаем все сообщения в батче
+            for tag in self.tags:
+                self.channel.basic_ack(tag)
 
-                TOTAL_MESSAGES.labels(queue=self.queue, status="success").inc(
-                    batch_size
-                )
-                logging.info(
-                    f"Successfully processed batch of {batch_size} traffic records"
-                )
+            MESSAGES_PROCESSED_TOTAL.labels(queue=self.queue, status="success").inc(
+                batch_size
+            )
+            logging.info(
+                f"Successfully processed batch of {batch_size} traffic records"
+            )
 
-            except Exception as e:
-                logging.exception(f"Traffic batch processing failed: {e}")
-                # Логируем проблемный батч для отладки
-                logging.debug(f"Failed batch: {self.batch[:3]}...")  # Первые 3 элемента
+        except Exception as e:
+            logging.exception(f"Traffic batch processing failed: {e}")
+            # Логируем проблемный батч для отладки
+            logging.debug(f"Failed batch: {self.batch[:3]}...")  # Первые 3 элемента
 
-                for tag in self.tags:
-                    self.channel.basic_nack(tag, requeue=False)
-                TOTAL_MESSAGES.labels(queue=self.queue, status="critical_error").inc(
-                    batch_size
-                )
+            for tag in self.tags:
+                self.channel.basic_nack(tag, requeue=False)
+            MESSAGES_PROCESSED_TOTAL.labels(
+                queue=self.queue, status="critical_error"
+            ).inc(batch_size)
 
-            finally:
-                self.batch.clear()
-                self.tags.clear()
-                self.last_flush = time.time()
+        finally:
+            self.batch.clear()
+            self.tags.clear()
+            self.last_flush = time.time()
 
     def stop(self) -> None:
         # Флашим оставшиеся данные перед остановкой
@@ -808,11 +797,7 @@ def update_system_metrics():
         # Память текущего процесса
         process = psutil.Process(os.getpid())
         memory_info = process.memory_info()
-        MEMORY_USAGE.set(memory_info.rss)
-
-        # Количество активных подключений
-        connections = len(process.connections())
-        ACTIVE_CONNECTIONS.labels(type="total").set(connections)
+        MEMORY_USAGE_BYTES.set(memory_info.rss)
 
     except Exception as e:
         logging.warning(f"Failed to update system metrics: {e}")
