@@ -1,0 +1,139 @@
+2025-07-26 21:58:46,834 [INFO] Pika version 1.3.2 connecting to ('192.168.110.52', 5672)
+2025-07-26 21:58:46,834 [INFO] Pika version 1.3.2 connecting to ('192.168.110.52', 5672)
+2025-07-26 21:58:46,939 [INFO] Socket connected: <socket.socket fd=13, family=2, type=1, proto=6, laddr=('192.168.111.193', 61458), raddr=('192.168.110.52', 5672)>
+2025-07-26 21:58:46,940 [INFO] Streaming transport linked up: (<pika.adapters.utils.io_services_utils._AsyncPlaintextTransport object at 0x1035616a0>, _StreamingProtocolShim: <SelectConnection PROTOCOL transport=<pika.adapters.utils.io_services_utils._AsyncPlaintextTransport object at 0x1035616a0> params=<URLParameters host=192.168.110.52 port=5672 virtual_host=/ ssl=False>>).
+2025-07-26 21:58:46,942 [INFO] Socket connected: <socket.socket fd=14, family=2, type=1, proto=6, laddr=('192.168.111.193', 61459), raddr=('192.168.110.52', 5672)>
+2025-07-26 21:58:46,943 [INFO] Streaming transport linked up: (<pika.adapters.utils.io_services_utils._AsyncPlaintextTransport object at 0x1034afed0>, _StreamingProtocolShim: <SelectConnection PROTOCOL transport=<pika.adapters.utils.io_services_utils._AsyncPlaintextTransport object at 0x1034afed0> params=<URLParameters host=192.168.110.52 port=5672 virtual_host=/ ssl=False>>).
+2025-07-26 21:58:47,271 [INFO] AMQPConnector - reporting success: <SelectConnection OPEN transport=<pika.adapters.utils.io_services_utils._AsyncPlaintextTransport object at 0x1034afed0> params=<URLParameters host=192.168.110.52 port=5672 virtual_host=/ ssl=False>>
+2025-07-26 21:58:47,271 [INFO] AMQPConnectionWorkflow - reporting success: <SelectConnection OPEN transport=<pika.adapters.utils.io_services_utils._AsyncPlaintextTransport object at 0x1034afed0> params=<URLParameters host=192.168.110.52 port=5672 virtual_host=/ ssl=False>>
+2025-07-26 21:58:47,271 [INFO] Connection workflow succeeded: <SelectConnection OPEN transport=<pika.adapters.utils.io_services_utils._AsyncPlaintextTransport object at 0x1034afed0> params=<URLParameters host=192.168.110.52 port=5672 virtual_host=/ ssl=False>>
+2025-07-26 21:58:47,272 [INFO] Created channel=1
+2025-07-26 21:58:47,277 [INFO] AMQPConnector - reporting success: <SelectConnection OPEN transport=<pika.adapters.utils.io_services_utils._AsyncPlaintextTransport object at 0x1035616a0> params=<URLParameters host=192.168.110.52 port=5672 virtual_host=/ ssl=False>>
+2025-07-26 21:58:47,277 [INFO] AMQPConnectionWorkflow - reporting success: <SelectConnection OPEN transport=<pika.adapters.utils.io_services_utils._AsyncPlaintextTransport object at 0x1035616a0> params=<URLParameters host=192.168.110.52 port=5672 virtual_host=/ ssl=False>>
+2025-07-26 21:58:47,277 [INFO] Connection workflow succeeded: <SelectConnection OPEN transport=<pika.adapters.utils.io_services_utils._AsyncPlaintextTransport object at 0x1035616a0> params=<URLParameters host=192.168.110.52 port=5672 virtual_host=/ ssl=False>>
+2025-07-26 21:58:47,277 [INFO] Created channel=1
+2025-07-26 21:58:48,561 [INFO] Created new queue consumer generator <_QueueConsumerGeneratorInfo params=('session_queue', False, False) consumer_tag='ctag1.d8e442515aa44fc593f3cd4aaf67cd6f'>
+2025-07-26 21:58:48,570 [INFO] Created new queue consumer generator <_QueueConsumerGeneratorInfo params=('traffic_queue', False, False) consumer_tag='ctag1.7d1d2bac15b0468593a3fd3427438601'>
+2025-07-26 21:58:49,118 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:58:49,680 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:58:50,229 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:58:50,772 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:58:51,314 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:58:51,855 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:58:52,416 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:58:52,967 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:58:53,522 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:58:54,085 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:58:54,697 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:58:55,253 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:58:55,806 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:58:56,500 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:58:57,063 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:58:57,612 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:58:58,190 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:58:58,758 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:58:59,296 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:58:59,845 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:00,434 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:00,981 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:01,548 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:02,098 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:02,652 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:03,196 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:04,186 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:04,744 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:05,297 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:05,856 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:07,056 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:07,695 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:08,309 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:08,925 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:09,548 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:10,163 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:10,787 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:11,444 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:12,052 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:13,547 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:14,179 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:14,765 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:15,364 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:15,950 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:16,550 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:17,157 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:17,774 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:18,394 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:18,958 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:19,519 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:20,465 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:21,095 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:21,648 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:22,354 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:23,123 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:23,782 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:24,870 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:25,412 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:25,960 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:26,677 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:27,345 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:27,921 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:28,471 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:29,026 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:29,572 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:30,116 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:30,675 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:31,212 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:31,769 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:32,318 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:32,869 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:33,421 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:34,001 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:34,957 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:35,504 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:36,116 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:36,666 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:37,228 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:37,779 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:38,354 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:38,904 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:39,454 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:39,990 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:40,544 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:41,093 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:42,399 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:43,063 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:43,636 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:44,610 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:45,153 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:45,699 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:46,249 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:46,812 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:47,375 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:47,921 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:48,470 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:49,020 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:49,601 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:50,141 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:50,690 [INFO] Successfully processed batch of 5 traffic records
+2025-07-26 21:59:51,018 [ERROR] _AsyncBaseTransport._produce() failed, aborting connection: error=IndexError('pop from an empty deque'); sock=<socket.socket fd=13, family=2, type=1, proto=6, laddr=('192.168.111.193', 61458), raddr=('192.168.110.52', 5672)>; Caller's stack:
+Traceback (most recent call last):
+  File "/Users/konfig/Develop/Consumers/to_clickhouse/.venv/lib/python3.13/site-packages/pika/adapters/utils/io_services_utils.py", line 1103, in _on_socket_writable
+    self._produce()
+    ~~~~~~~~~~~~~^^
+  File "/Users/konfig/Develop/Consumers/to_clickhouse/.venv/lib/python3.13/site-packages/pika/adapters/utils/io_services_utils.py", line 822, in _produce
+    chunk = self._tx_buffers.popleft()
+IndexError: pop from an empty deque
+Traceback (most recent call last):
+  File "/Users/konfig/Develop/Consumers/to_clickhouse/.venv/lib/python3.13/site-packages/pika/adapters/utils/io_services_utils.py", line 1103, in _on_socket_writable
+    self._produce()
+    ~~~~~~~~~~~~~^^
+  File "/Users/konfig/Develop/Consumers/to_clickhouse/.venv/lib/python3.13/site-packages/pika/adapters/utils/io_services_utils.py", line 822, in _produce
+    chunk = self._tx_buffers.popleft()
+IndexError: pop from an empty deque
+2025-07-26 21:59:51,019 [INFO] _AsyncTransportBase._initate_abort(): Initiating abrupt asynchronous transport shutdown: state=1; error=IndexError('pop from an empty deque'); <socket.socket fd=13, family=2, type=1, proto=6, laddr=('192.168.111.193', 61458), raddr=('192.168.110.52', 5672)>
+2025-07-26 21:59:51,019 [INFO] Deactivating transport: state=1; <socket.socket fd=13, family=2, type=1, proto=6, laddr=('192.168.111.193', 61458), raddr=('192.168.110.52', 5672)>
+2025-07-26 21:59:51,020 [ERROR] connection_lost: StreamLostError: ("Stream connection lost: IndexError('pop from an empty deque')",)
+2025-07-26 21:59:51,020 [INFO] AMQP stack terminated, failed to connect, or aborted: opened=True, error-arg=StreamLostError: ("Stream connection lost: IndexError('pop from an empty deque')",); pending-error=None
+2025-07-26 21:59:51,020 [INFO] Stack terminated due to StreamLostError: ("Stream connection lost: IndexError('pop from an empty deque')",)
+2025-07-26 21:59:51,020 [INFO] Closing transport socket and unlinking: state=2; <socket.socket fd=13, family=2, type=1, proto=6, laddr=('192.168.111.193', 61458), raddr=('192.168.110.52', 5672)>
+2025-07-26 21:59:51,020 [ERROR] Unexpected connection close detected: StreamLostError: ("Stream connection lost: IndexError('pop from an empty deque')",)
+2025-07-26 21:59:51,022 [ERROR] SessionConsumer failed: Stream connection lost: IndexError('pop from an empty deque')

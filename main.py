@@ -6,6 +6,8 @@ import time
 from typing import Any, Dict, List
 import json
 import pika
+import psutil
+import os
 from clickhouse_driver import Client
 from prometheus_client import Counter, Histogram, Gauge, start_http_server
 from datetime import datetime
@@ -84,6 +86,20 @@ SYSTEM_HEALTH = Gauge(
     "System health status (1=healthy, 0=unhealthy)",
     ["component"],  # component: clickhouse, rabbitmq, validation
 )
+
+# Метрики производительности
+ACTIVE_CONNECTIONS = Gauge(
+    "radius_active_connections", "Number of active connections", ["type"]
+)
+
+BATCH_PROCESSING_TIME = Histogram(
+    "radius_batch_processing_seconds",
+    "Time to process a batch of messages",
+    ["queue"],
+    buckets=(0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0),
+)
+
+MEMORY_USAGE = Gauge("radius_memory_usage_bytes", "Memory usage in bytes")
 
 
 # ----------------------------- #
@@ -432,58 +448,63 @@ TRAFFIC_FIELDS = list(
 )
 
 SESSION_FIELDS = [
-    'login',
-    'onu_mac',
-    'contract',
-    'auth_type',
-    'service',
-    'Acct-Session-Id',
-    'Acct-Unique-Session-Id',
-    'Acct-Start-Time',
-    'Acct-Update-Time',
-    'Acct-Stop-Time',
-    'User-Name',
-    'NAS-IP-Address',
-    'NAS-Port-Id',
-    'NAS-Port-Type',
-    'Calling-Station-Id',
-    'Acct-Terminate-Cause',
-    'Service-Type',
-    'Framed-Protocol',
-    'Framed-IP-Address',
-    'Framed-IPv6-Prefix',
-    'Delegated-IPv6-Prefix',
-    'Acct-Session-Time',
-    'Acct-Input-Octets',
-    'Acct-Output-Octets',
-    'Acct-Input-Packets',
-    'Acct-Output-Packets',
-    'Acct-Input-Gigawords',
-    'Acct-Output-Gigawords',
-    'ERX-IPv6-Acct-Input-Octets',
-    'ERX-IPv6-Acct-Output-Octets',
-    'ERX-IPv6-Acct-Input-Packets',
-    'ERX-IPv6-Acct-Output-Packets',
-    'ERX-IPv6-Acct-Input-Gigawords',
-    'ERX-IPv6-Acct-Output-Gigawords',
-    'ERX-Virtual-Router-Name',
-    'ERX-Service-Session',
-    'ADSL-Agent-Circuit-Id',
-    'ADSL-Agent-Remote-Id',
-    'GMT'
+    "login",
+    "onu_mac",
+    "contract",
+    "auth_type",
+    "service",
+    "Acct-Session-Id",
+    "Acct-Unique-Session-Id",
+    "Acct-Start-Time",
+    "Acct-Update-Time",
+    "Acct-Stop-Time",
+    "User-Name",
+    "NAS-IP-Address",
+    "NAS-Port-Id",
+    "NAS-Port-Type",
+    "Calling-Station-Id",
+    "Acct-Terminate-Cause",
+    "Service-Type",
+    "Framed-Protocol",
+    "Framed-IP-Address",
+    "Framed-IPv6-Prefix",
+    "Delegated-IPv6-Prefix",
+    "Acct-Session-Time",
+    "Acct-Input-Octets",
+    "Acct-Output-Octets",
+    "Acct-Input-Packets",
+    "Acct-Output-Packets",
+    "Acct-Input-Gigawords",
+    "Acct-Output-Gigawords",
+    "ERX-IPv6-Acct-Input-Octets",
+    "ERX-IPv6-Acct-Output-Octets",
+    "ERX-IPv6-Acct-Input-Packets",
+    "ERX-IPv6-Acct-Output-Packets",
+    "ERX-IPv6-Acct-Input-Gigawords",
+    "ERX-IPv6-Acct-Output-Gigawords",
+    "ERX-Virtual-Router-Name",
+    "ERX-Service-Session",
+    "ADSL-Agent-Circuit-Id",
+    "ADSL-Agent-Remote-Id",
+    "GMT",
 ]
+
 
 def prepare_session_row(validated_data: Dict[str, Any]) -> List[Any]:
     """Подготовка строки для вставки в таблицу sessions"""
     # Проверка обязательных полей
-    if not all(field in validated_data for field in DataValidator.SESSION_REQUIRED_FIELDS):
-        missing = [f for f in DataValidator.SESSION_REQUIRED_FIELDS if f not in validated_data]
+    if not all(
+        field in validated_data for field in DataValidator.SESSION_REQUIRED_FIELDS
+    ):
+        missing = [
+            f for f in DataValidator.SESSION_REQUIRED_FIELDS if f not in validated_data
+        ]
         raise ValueError(f"Missing required fields: {missing}")
-    
+
     row = []
     for field in SESSION_FIELDS:
         value = validated_data.get(field)
-        
+
         # Обработка отсутствующих значений
         if value is None:
             if field in DataValidator.SESSION_DATETIME_FIELDS:
@@ -499,7 +520,7 @@ def prepare_session_row(validated_data: Dict[str, Any]) -> List[Any]:
             else:
                 row.append(None)
             continue
-        
+
         # Явное преобразование типов
         try:
             if field in DataValidator.SESSION_STRING_FIELDS:
@@ -517,8 +538,10 @@ def prepare_session_row(validated_data: Dict[str, Any]) -> List[Any]:
             else:
                 row.append(value)
         except (ValueError, TypeError) as e:
-            raise ValueError(f"Invalid value for field {field}: {value} ({type(value)}). Error: {str(e)}")
-    
+            raise ValueError(
+                f"Invalid value for field {field}: {value} ({type(value)}). Error: {str(e)}"
+            )
+
     return row
 
 
@@ -777,6 +800,24 @@ class TrafficConsumer(RabbitConsumer):
 # ----------------------------- #
 #         MAIN ENTRYPOINT       #
 # ----------------------------- #
+
+
+def update_system_metrics():
+    """Обновление системных метрик"""
+    try:
+        # Память текущего процесса
+        process = psutil.Process(os.getpid())
+        memory_info = process.memory_info()
+        MEMORY_USAGE.set(memory_info.rss)
+
+        # Количество активных подключений
+        connections = len(process.connections())
+        ACTIVE_CONNECTIONS.labels(type="total").set(connections)
+
+    except Exception as e:
+        logging.warning(f"Failed to update system metrics: {e}")
+
+
 def main() -> None:
     start_http_server(int(config.METRICS_PORT))
 
@@ -789,6 +830,15 @@ def main() -> None:
 
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
+
+    # Запуск потока для системных метрик
+    def metrics_updater():
+        while True:
+            update_system_metrics()
+            time.sleep(10)  # Обновляем каждые 10 секунд
+
+    metrics_thread = threading.Thread(target=metrics_updater, daemon=True)
+    metrics_thread.start()
 
     for t in threads:
         t.start()

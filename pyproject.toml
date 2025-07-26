@@ -10,4 +10,5 @@ dependencies = [
     "prometheus-client>=0.21.1",
     "python-dotenv>=1.1.0",
     "requests>=2.32.4",
+    "psutil>=5.9.0",
 ]
