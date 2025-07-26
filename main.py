@@ -424,15 +424,6 @@ class DataValidator:
             raise ValidationError(field, value, f"Cannot convert to Int8: {e}")
 
 
-# Все поля для сессий (для обратной совместимости)
-SESSION_FIELDS = list(
-    DataValidator.SESSION_STRING_FIELDS
-    | DataValidator.SESSION_DATETIME_FIELDS
-    | DataValidator.SESSION_UINT32_FIELDS
-    | DataValidator.SESSION_UINT64_FIELDS
-    | DataValidator.SESSION_INT8_FIELDS
-)
-
 # Все поля для трафика
 TRAFFIC_FIELDS = list(
     DataValidator.TRAFFIC_STRING_FIELDS
@@ -440,27 +431,94 @@ TRAFFIC_FIELDS = list(
     | DataValidator.TRAFFIC_UINT64_FIELDS
 )
 
+SESSION_FIELDS = [
+    'login',
+    'onu_mac',
+    'contract',
+    'auth_type',
+    'service',
+    'Acct-Session-Id',
+    'Acct-Unique-Session-Id',
+    'Acct-Start-Time',
+    'Acct-Update-Time',
+    'Acct-Stop-Time',
+    'User-Name',
+    'NAS-IP-Address',
+    'NAS-Port-Id',
+    'NAS-Port-Type',
+    'Calling-Station-Id',
+    'Acct-Terminate-Cause',
+    'Service-Type',
+    'Framed-Protocol',
+    'Framed-IP-Address',
+    'Framed-IPv6-Prefix',
+    'Delegated-IPv6-Prefix',
+    'Acct-Session-Time',
+    'Acct-Input-Octets',
+    'Acct-Output-Octets',
+    'Acct-Input-Packets',
+    'Acct-Output-Packets',
+    'Acct-Input-Gigawords',
+    'Acct-Output-Gigawords',
+    'ERX-IPv6-Acct-Input-Octets',
+    'ERX-IPv6-Acct-Output-Octets',
+    'ERX-IPv6-Acct-Input-Packets',
+    'ERX-IPv6-Acct-Output-Packets',
+    'ERX-IPv6-Acct-Input-Gigawords',
+    'ERX-IPv6-Acct-Output-Gigawords',
+    'ERX-Virtual-Router-Name',
+    'ERX-Service-Session',
+    'ADSL-Agent-Circuit-Id',
+    'ADSL-Agent-Remote-Id',
+    'GMT'
+]
 
 def prepare_session_row(validated_data: Dict[str, Any]) -> List[Any]:
     """Подготовка строки для вставки в таблицу sessions"""
+    # Проверка обязательных полей
+    if not all(field in validated_data for field in DataValidator.SESSION_REQUIRED_FIELDS):
+        missing = [f for f in DataValidator.SESSION_REQUIRED_FIELDS if f not in validated_data]
+        raise ValueError(f"Missing required fields: {missing}")
+    
     row = []
     for field in SESSION_FIELDS:
         value = validated_data.get(field)
-        if value is not None:
-            row.append(value)
-        else:
-            # Значения по умолчанию для пропущенных полей
+        
+        # Обработка отсутствующих значений
+        if value is None:
             if field in DataValidator.SESSION_DATETIME_FIELDS:
                 row.append(datetime(1970, 1, 1, 5, 0, 0))
-            elif field in (
-                DataValidator.SESSION_UINT32_FIELDS
-                | DataValidator.SESSION_UINT64_FIELDS
-            ):
+            elif field in DataValidator.SESSION_UINT32_FIELDS:
+                row.append(0)
+            elif field in DataValidator.SESSION_UINT64_FIELDS:
                 row.append(0)
             elif field in DataValidator.SESSION_INT8_FIELDS:
                 row.append(5 if field == "GMT" else 0)
-            else:
+            elif field in DataValidator.SESSION_STRING_FIELDS:
                 row.append("")
+            else:
+                row.append(None)
+            continue
+        
+        # Явное преобразование типов
+        try:
+            if field in DataValidator.SESSION_STRING_FIELDS:
+                row.append(str(value))
+            elif field in DataValidator.SESSION_DATETIME_FIELDS:
+                if not isinstance(value, datetime):
+                    raise ValueError(f"Field {field} must be datetime")
+                row.append(value)
+            elif field in DataValidator.SESSION_UINT32_FIELDS:
+                row.append(int(value))
+            elif field in DataValidator.SESSION_UINT64_FIELDS:
+                row.append(int(value))
+            elif field in DataValidator.SESSION_INT8_FIELDS:
+                row.append(int(value))
+            else:
+                row.append(value)
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Invalid value for field {field}: {value} ({type(value)}). Error: {str(e)}")
+    
     return row
 
 
