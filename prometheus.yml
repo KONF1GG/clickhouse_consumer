@@ -10,7 +10,22 @@ scrape_configs:
     metrics_path: /metrics
     honor_labels: true
 
-  # Можно добавить мониторинг самого Prometheus
   - job_name: 'prometheus'
     static_configs:
       - targets: ['localhost:9090']
+
+  - job_name: 'radius-server'
+    static_configs:
+      - targets: ['localhost:8888']  # Адрес вашего RADIUS сервера
+    scrape_interval: 5s  # Чаще собираем метрики для RADIUS
+    metrics_path: /metrics
+  
+
+  # Если несколько RADIUS серверов
+  # - job_name: 'radius-cluster'
+  #   static_configs:
+  #     - targets: 
+  #         - 'radius-1.example.com:8000'
+  #         - 'radius-2.example.com:8000'
+  #         - 'radius-3.example.com:8000'
+  #   scrape_interval: 5s
