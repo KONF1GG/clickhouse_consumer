@@ -428,6 +428,7 @@ SESSION_FIELDS = [
     "login",
     "onu_mac",
     "contract",
+    "packet_type",
     "auth_type",
     "service",
     "Acct-Session-Id",
