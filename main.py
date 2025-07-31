@@ -195,6 +195,7 @@ class DataValidator:
         "onu_mac",
         "contract",
         "auth_type",
+        "packet_type",
         "service",
         "Acct-Session-Id",
         "Acct-Unique-Session-Id",
