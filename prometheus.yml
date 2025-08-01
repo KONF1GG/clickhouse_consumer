@@ -16,10 +16,15 @@ scrape_configs:
 
   - job_name: 'radius-server'
     static_configs:
-      - targets: ['192.168.110.52:8888']  # Адрес вашего RADIUS сервера
-    scrape_interval: 5s  # Чаще собираем метрики для RADIUS
+      - targets: ['192.168.110.52:8888'] 
+    scrape_interval: 5s  
     metrics_path: /metrics
-  
+
+  - job_name: 'freeradius_exporter'
+    static_configs:
+      - targets: ['192.168.110.52:9812']
+    metrics_path: /metrics
+
 
   # Если несколько RADIUS серверов
   # - job_name: 'radius-cluster'
