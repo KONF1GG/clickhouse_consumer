@@ -24,13 +24,3 @@ scrape_configs:
     static_configs:
       - targets: ['192.168.110.52:9812']
     metrics_path: /metrics
-
-
-  # Если несколько RADIUS серверов
-  # - job_name: 'radius-cluster'
-  #   static_configs:
-  #     - targets: 
-  #         - 'radius-1.example.com:8000'
-  #         - 'radius-2.example.com:8000'
-  #         - 'radius-3.example.com:8000'
-  #   scrape_interval: 5s
