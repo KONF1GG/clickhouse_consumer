@@ -11,4 +11,5 @@ dependencies = [
     "python-dotenv>=1.1.0",
     "requests>=2.32.4",
     "psutil>=5.9.0",
+    "python-dateutil>=2.9.0.post0",
 ]

@@ -11,6 +11,7 @@ import os
 from clickhouse_driver import Client
 from prometheus_client import Counter, Histogram, Gauge, start_http_server
 from datetime import datetime
+from dateutil.parser import parse as dt_parse
 
 import config
 
@@ -357,15 +358,12 @@ class DataValidator:
                 raise ValidationError(field, value, f"Invalid timestamp: {e}")
 
         if isinstance(value, str):
-            for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%SZ"]:
-                try:
-                    return datetime.strptime(value, fmt)
-                except ValueError:
-                    continue
-            raise ValidationError(field, value, "Invalid datetime format")
+            try:
+                return dt_parse(value)
+            except Exception:
+                raise ValidationError(field, value, "Invalid datetime format")
 
-        raise ValidationError(field, value, "Cannot convert to datetime")
-
+        raise ValidationError(field, value, "Unsupported type for datetime parsing")
     @staticmethod
     def _parse_uint32(field: str, value: Any) -> int:
         """Парсинг UInt32 значения"""
