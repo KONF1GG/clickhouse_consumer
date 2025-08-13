@@ -197,7 +197,6 @@ class DataValidator:
         "contract",
         "auth_type",
         "Acct-Status-Type",
-        "service",
         "Acct-Session-Id",
         "Acct-Unique-Session-Id",
         "User-Name",
@@ -364,6 +363,7 @@ class DataValidator:
                 raise ValidationError(field, value, "Invalid datetime format")
 
         raise ValidationError(field, value, "Unsupported type for datetime parsing")
+
     @staticmethod
     def _parse_uint32(field: str, value: Any) -> int:
         """Парсинг UInt32 значения"""
@@ -424,7 +424,6 @@ SESSION_FIELDS = [
     "contract",
     "Acct-Status-Type",
     "auth_type",
-    "service",
     "Acct-Session-Id",
     "Acct-Unique-Session-Id",
     "Acct-Start-Time",
