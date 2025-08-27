@@ -1,3 +1,7 @@
+"""
+RabbitMQ consumer for ClickHouse
+"""
+
 import logging
 import signal
 import ssl
@@ -5,85 +9,18 @@ import threading
 import time
 from typing import Any, Dict, List
 import json
-import pika
-import psutil
-import os
-from clickhouse_driver import Client
-from prometheus_client import Counter, Histogram, Gauge, start_http_server
 from datetime import datetime
+
+import pika
+from clickhouse_driver import Client
 from dateutil.parser import parse as dt_parse
 
 import config
 
-# ----------------------------- #
-#         CONFIGURATION         #
-# ----------------------------- #
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[logging.FileHandler(config.LOG_PATH), logging.StreamHandler()],
-)
-
-# ----------------------------- #
-#          PROMETHEUS           #
-# ----------------------------- #
-
-# Основные метрики обработки сообщений
-MESSAGES_PROCESSED_TOTAL = Counter(
-    "radius_messages_processed_total",
-    "Total number of processed messages",
-    [
-        "queue",
-        "status",
-    ],  # status: success, validation_error, json_error, critical_error
-)
-
-MESSAGES_PROCESSING_DURATION = Histogram(
-    "radius_message_processing_duration_seconds",
-    "Time spent processing individual messages",
-    ["queue"],
-    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0),
-)
-
-# ClickHouse операции
-CLICKHOUSE_OPERATIONS_TOTAL = Counter(
-    "radius_clickhouse_operations_total",
-    "Total ClickHouse operations",
-    [
-        "table",
-        "operation",
-        "status",
-    ],  # operation: insert, batch_insert; status: success, error
-)
-
-CLICKHOUSE_OPERATION_DURATION = Histogram(
-    "radius_clickhouse_operation_duration_seconds",
-    "Duration of ClickHouse operations",
-    ["table", "operation"],
-    buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
-)
-
-CLICKHOUSE_BATCH_SIZE = Histogram(
-    "radius_clickhouse_batch_size_records",
-    "Number of records in ClickHouse batch operations",
-    ["table"],
-    buckets=(1, 5, 10, 25, 50, 100, 250, 500, 1000),
-)
-
-# Системные метрики
-APPLICATION_UP = Gauge(
-    "radius_application_up",
-    "Application health status (1=up, 0=down)",
-    ["component"],  # component: sessions_consumer, traffic_consumer, clickhouse
-)
-
-MEMORY_USAGE_BYTES = Gauge("radius_memory_usage_bytes", "Current memory usage in bytes")
-
-# Метрики ошибок
-VALIDATION_ERRORS_TOTAL = Counter(
-    "radius_validation_errors_total",
-    "Total validation errors by field and error type",
-    ["queue", "field", "error_type"],
 )
 
 
@@ -91,6 +28,8 @@ VALIDATION_ERRORS_TOTAL = Counter(
 #         CLICKHOUSE CLIENT     #
 # ----------------------------- #
 class ClickHouseClient:
+    """ClickHouse client"""
+
     def __init__(self) -> None:
         self.client = Client(
             host=config.CLICKHOUSE_HOST,
@@ -98,38 +37,31 @@ class ClickHouseClient:
             user=config.CLICKHOUSE_USER,
             password=config.CLICKHOUSE_PASSWORD,
         )
-        # Устанавливаем начальное состояние здоровья
-        APPLICATION_UP.labels(component="clickhouse").set(1)
 
-    def insert_session(self, data: Dict[str, Any]) -> None:
-        """Insert single session into ClickHouse (data already validated)."""
+    def insert_session_batch(self, batch: List[Dict[str, Any]]) -> None:
+        """Insert session batch into ClickHouse (data already validated)."""
+        if not batch:
+            return
+
         try:
-            # Валидация и подготовка данных
-            with CLICKHOUSE_OPERATION_DURATION.labels(
-                table="radius_sessions_new", operation="insert"
-            ).time():
-                validated_data = DataValidator.validate_session_data(data)
-                row = prepare_session_row(validated_data)
+            # Подготовка данных для вставки
+            validated_rows = []
+            for item in batch:
+                validated_data = DataValidator.validate_session_data(item)
+                validated_rows.append(prepare_session_row(validated_data))
 
-                self.client.execute(
-                    "INSERT INTO radius.radius_sessions_new (*) VALUES",
-                    [row],
-                )
+            self.client.execute(
+                "INSERT INTO radius.radius_sessions_new (*) VALUES",
+                validated_rows,
+            )
 
-            # Метрики успеха
-            CLICKHOUSE_OPERATIONS_TOTAL.labels(
-                table="radius_sessions_new", operation="insert", status="success"
-            ).inc()
-
-            APPLICATION_UP.labels(component="clickhouse").set(1)
+            logging.info(
+                "Successfully inserted batch of %s session records", len(batch)
+            )
 
         except Exception as e:
             # Логируем критическую ошибку
-            logging.error(f"ClickHouse session insert error: {e}")
-            CLICKHOUSE_OPERATIONS_TOTAL.labels(
-                table="radius_sessions_new", operation="insert", status="error"
-            ).inc()
-            APPLICATION_UP.labels(component="clickhouse").set(0)
+            logging.error("ClickHouse session batch insert error: %s", e)
             raise
 
     def insert_traffic_batch(self, batch: List[Dict[str, Any]]) -> None:
@@ -139,34 +71,19 @@ class ClickHouseClient:
 
         try:
             # Подготовка данных для вставки
-            with CLICKHOUSE_OPERATION_DURATION.labels(
-                table="radius_traffic", operation="batch_insert"
-            ).time():
-                validated_rows = []
-                for item in batch:
-                    validated_data = DataValidator.validate_traffic_data(item)
-                    validated_rows.append(prepare_traffic_row(validated_data))
+            validated_rows = []
+            for item in batch:
+                validated_data = DataValidator.validate_traffic_data(item)
+                validated_rows.append(prepare_traffic_row(validated_data))
 
-                self.client.execute(
-                    "INSERT INTO radius.radius_traffic (*) VALUES",
-                    validated_rows,
-                )
-
-            # Метрики успеха
-            CLICKHOUSE_OPERATIONS_TOTAL.labels(
-                table="radius_traffic", operation="batch_insert", status="success"
-            ).inc()
-
-            CLICKHOUSE_BATCH_SIZE.labels(table="radius_traffic").observe(len(batch))
-            APPLICATION_UP.labels(component="clickhouse").set(1)
+            self.client.execute(
+                "INSERT INTO radius.radius_traffic (*) VALUES",
+                validated_rows,
+            )
 
         except Exception as e:
             # Логируем критическую ошибку
-            logging.error(f"ClickHouse traffic batch insert error: {e}")
-            CLICKHOUSE_OPERATIONS_TOTAL.labels(
-                table="radius_traffic", operation="batch_insert", status="error"
-            ).inc()
-            APPLICATION_UP.labels(component="clickhouse").set(0)
+            logging.error("ClickHouse traffic batch insert error: %s", e)
             raise
 
 
@@ -533,6 +450,8 @@ def prepare_traffic_row(validated_data: Dict[str, Any]) -> List[Any]:
 #         RABBITMQ BASE         #
 # ----------------------------- #
 class RabbitConsumer:
+    """RabbitMQ consumer base class"""
+
     def __init__(self, queue: str) -> None:
         self.queue = queue
         self.conn = None
@@ -548,6 +467,7 @@ class RabbitConsumer:
             )
 
     def connect(self) -> None:
+        """Connect to RabbitMQ"""
         params = pika.URLParameters(config.AMQP_URL)
         if self.ssl_ctx:
             params.ssl_options = pika.SSLOptions(self.ssl_ctx)
@@ -578,9 +498,11 @@ class RabbitConsumer:
         ch.basic_qos(prefetch_count=int(config.PREFETCH_COUNT))
 
     def start(self) -> None:
+        """Start the consumer"""
         raise NotImplementedError
 
     def stop(self) -> None:
+        """Stop the consumer"""
         self.running = False
         if self.channel:
             self.channel.stop_consuming()
@@ -592,91 +514,20 @@ class RabbitConsumer:
 #         SESSION CONSUMER      #
 # ----------------------------- #
 class SessionConsumer(RabbitConsumer):
+    """Session consumer"""
+
     def __init__(self) -> None:
         super().__init__(queue="session_queue")
-        self.ch_client = ClickHouseClient()
-        APPLICATION_UP.labels(component="sessions_consumer").set(1)
-
-    def start(self) -> None:
-        self.running = True
-        try:
-            self.connect()
-            APPLICATION_UP.labels(component="sessions_consumer").set(1)
-
-            for method, _, body in self.channel.consume(
-                self.queue, inactivity_timeout=1
-            ):
-                if not self.running:
-                    break
-                if body is None:
-                    continue
-                self._handle(body, method)
-
-        except Exception as e:
-            logging.error(f"SessionConsumer failed: {e}")
-            APPLICATION_UP.labels(component="sessions_consumer").set(0)
-            raise
-
-    def _handle(self, body: bytes, method) -> None:
-        with MESSAGES_PROCESSING_DURATION.labels(queue=self.queue).time():
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError as e:
-                logging.error(f"Session JSON decode failed: {e}")
-                self.channel.basic_nack(method.delivery_tag, requeue=False)
-                MESSAGES_PROCESSED_TOTAL.labels(
-                    queue=self.queue, status="json_error"
-                ).inc()
-                return
-
-            # Валидация данных
-            try:
-                DataValidator.validate_session_data(data)
-            except ValidationError as e:
-                logging.warning(f"Session validation failed: {e}")
-                self.channel.basic_nack(method.delivery_tag, requeue=False)
-                MESSAGES_PROCESSED_TOTAL.labels(
-                    queue=self.queue, status="validation_error"
-                ).inc()
-                VALIDATION_ERRORS_TOTAL.labels(
-                    queue=self.queue, field=e.field, error_type=type(e).__name__
-                ).inc()
-                return
-
-            # Если всё ок — вставляем в ClickHouse
-            try:
-                self.ch_client.insert_session(data)
-                self.channel.basic_ack(method.delivery_tag)
-                MESSAGES_PROCESSED_TOTAL.labels(
-                    queue=self.queue, status="success"
-                ).inc()
-
-            except Exception as e:
-                logging.exception("Session processing failed")
-                self.channel.basic_nack(method.delivery_tag, requeue=False)
-                MESSAGES_PROCESSED_TOTAL.labels(
-                    queue=self.queue, status="critical_error"
-                ).inc()
-
-
-# ----------------------------- #
-#         TRAFFIC CONSUMER      #
-# ----------------------------- #
-class TrafficConsumer(RabbitConsumer):
-    def __init__(self) -> None:
-        super().__init__(queue="traffic_queue")
         self.ch_client = ClickHouseClient()
         self.batch: List[Dict[str, Any]] = []
         self.tags: List[int] = []
         self.last_flush = time.time()
         self.flush_interval = 5  # секунд
-        APPLICATION_UP.labels(component="traffic_consumer").set(1)
 
     def start(self) -> None:
         self.running = True
         try:
             self.connect()
-            APPLICATION_UP.labels(component="traffic_consumer").set(1)
 
             for method, _, body in self.channel.consume(
                 self.queue, inactivity_timeout=1
@@ -689,31 +540,127 @@ class TrafficConsumer(RabbitConsumer):
                 self._handle(body, method)
 
         except Exception as e:
-            logging.error(f"TrafficConsumer failed: {e}")
-            APPLICATION_UP.labels(component="traffic_consumer").set(0)
+            logging.error("SessionConsumer failed: %s", e)
             raise
 
     def _handle(self, body: bytes, method) -> None:
         try:
             data = json.loads(body)
         except json.JSONDecodeError as e:
-            logging.error(f"Traffic JSON decode failed: {e}")
+            logging.error("Session JSON decode failed: %s", e)
             self.channel.basic_nack(method.delivery_tag, requeue=False)
-            MESSAGES_PROCESSED_TOTAL.labels(queue=self.queue, status="json_error").inc()
+            return
+
+        # Валидация данных
+        try:
+            DataValidator.validate_session_data(data)
+        except ValidationError as e:
+            logging.warning("Session validation failed: %s", e)
+            self.channel.basic_nack(method.delivery_tag, requeue=False)
+            return
+
+        # Если всё ок — добавляем в batch
+        self.batch.append(data)
+        self.tags.append(method.delivery_tag)
+        self._maybe_flush()
+
+    def _maybe_flush(self) -> None:
+        batch_size = len(self.batch)
+        time_since_flush = time.time() - self.last_flush
+
+        # Флашим если батч большой или прошло много времени
+        should_flush = batch_size >= int(config.PREFETCH_COUNT) or (
+            batch_size > 0 and time_since_flush > self.flush_interval
+        )
+
+        if should_flush:
+            self._flush()
+
+    def _flush(self) -> None:
+        if not self.batch:
+            return
+
+        batch_size = len(self.batch)
+
+        try:
+            self.ch_client.insert_session_batch(self.batch)
+
+            # Подтверждаем все сообщения в батче
+            for tag in self.tags:
+                self.channel.basic_ack(tag)
+
+            logging.info(
+                "Successfully processed batch of %s session records", batch_size
+            )
+
+        except Exception as e:
+            logging.exception("Session batch processing failed: %s", e)
+            # Логируем проблемный батч для отладки
+            logging.debug("Failed batch: %s...", self.batch[:3])  # Первые 3 элемента
+
+            for tag in self.tags:
+                self.channel.basic_nack(tag, requeue=False)
+
+        finally:
+            self.batch.clear()
+            self.tags.clear()
+            self.last_flush = time.time()
+
+    def stop(self) -> None:
+        # Флашим оставшиеся данные перед остановкой
+        if self.batch:
+            logging.info("Flushing remaining %s records on shutdown", len(self.batch))
+            self._flush()
+        super().stop()
+
+
+# ----------------------------- #
+#         TRAFFIC CONSUMER      #
+# ----------------------------- #
+class TrafficConsumer(RabbitConsumer):
+    """Traffic consumer"""
+
+    def __init__(self) -> None:
+        super().__init__(queue="traffic_queue")
+        self.ch_client = ClickHouseClient()
+        self.batch: List[Dict[str, Any]] = []
+        self.tags: List[int] = []
+        self.last_flush = time.time()
+        self.flush_interval = 5  # секунд
+
+    def start(self) -> None:
+        self.running = True
+        try:
+            self.connect()
+
+            for method, _, body in self.channel.consume(
+                self.queue, inactivity_timeout=1
+            ):
+                if not self.running:
+                    break
+                if body is None:
+                    self._maybe_flush()
+                    continue
+                self._handle(body, method)
+
+        except Exception as e:
+            logging.error("TrafficConsumer failed: %s", e)
+            raise
+
+    def _handle(self, body: bytes, method) -> None:
+        try:
+            data = json.loads(body)
+        except json.JSONDecodeError as e:
+            logging.error("Traffic JSON decode failed: %s", e)
+            self.channel.basic_nack(method.delivery_tag, requeue=False)
             return
 
         # Валидация данных
         try:
             DataValidator.validate_traffic_data(data)
         except ValidationError as e:
-            logging.warning(f"Traffic validation failed: {e}")
+            logging.warning("Traffic validation failed: %s", e)
             self.channel.basic_nack(method.delivery_tag, requeue=False)
-            MESSAGES_PROCESSED_TOTAL.labels(
-                queue=self.queue, status="validation_error"
-            ).inc()
-            VALIDATION_ERRORS_TOTAL.labels(
-                queue=self.queue, field=e.field, error_type=type(e).__name__
-            ).inc()
             return
 
         # Если всё ок — добавляем в batch
@@ -746,23 +693,17 @@ class TrafficConsumer(RabbitConsumer):
             for tag in self.tags:
                 self.channel.basic_ack(tag)
 
-            MESSAGES_PROCESSED_TOTAL.labels(queue=self.queue, status="success").inc(
-                batch_size
-            )
             logging.info(
-                f"Successfully processed batch of {batch_size} traffic records"
+                "Successfully processed batch of %s traffic records", batch_size
             )
 
         except Exception as e:
-            logging.exception(f"Traffic batch processing failed: {e}")
+            logging.exception("Traffic batch processing failed: %s", e)
             # Логируем проблемный батч для отладки
-            logging.debug(f"Failed batch: {self.batch[:3]}...")  # Первые 3 элемента
+            logging.debug("Failed batch: %s...", self.batch[:3])  # Первые 3 элемента
 
             for tag in self.tags:
                 self.channel.basic_nack(tag, requeue=False)
-            MESSAGES_PROCESSED_TOTAL.labels(
-                queue=self.queue, status="critical_error"
-            ).inc(batch_size)
 
         finally:
             self.batch.clear()
@@ -772,7 +713,7 @@ class TrafficConsumer(RabbitConsumer):
     def stop(self) -> None:
         # Флашим оставшиеся данные перед остановкой
         if self.batch:
-            logging.info(f"Flushing remaining {len(self.batch)} records on shutdown")
+            logging.info("Flushing remaining %s records on shutdown", len(self.batch))
             self._flush()
         super().stop()
 
@@ -782,21 +723,8 @@ class TrafficConsumer(RabbitConsumer):
 # ----------------------------- #
 
 
-def update_system_metrics():
-    """Обновление системных метрик"""
-    try:
-        # Память текущего процесса
-        process = psutil.Process(os.getpid())
-        memory_info = process.memory_info()
-        MEMORY_USAGE_BYTES.set(memory_info.rss)
-
-    except Exception as e:
-        logging.warning(f"Failed to update system metrics: {e}")
-
-
 def main() -> None:
-    start_http_server(int(config.METRICS_PORT))
-
+    """Main entrypoint"""
     consumers = [SessionConsumer(), TrafficConsumer()]
     threads = [threading.Thread(target=c.start, daemon=True) for c in consumers]
 
@@ -806,15 +734,6 @@ def main() -> None:
 
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
-
-    # Запуск потока для системных метрик
-    def metrics_updater():
-        while True:
-            update_system_metrics()
-            time.sleep(10)  # Обновляем каждые 10 секунд
-
-    metrics_thread = threading.Thread(target=metrics_updater, daemon=True)
-    metrics_thread.start()
 
     for t in threads:
         t.start()
