@@ -51,7 +51,7 @@ class ClickHouseClient:
                 validated_rows.append(prepare_session_row(validated_data))
 
             self.client.execute(
-                "INSERT INTO radius.radius_sessions_new (*) VALUES",
+                "INSERT INTO radius.radius_sessions (*) VALUES",
                 validated_rows,
             )
 
@@ -105,7 +105,7 @@ class ValidationError(Exception):
 class DataValidator:
     """Валидатор данных для сессий и трафика"""
 
-    # Поля таблицы radius_sessions_new согласно схеме
+    # Поля таблицы radius_sessions согласно схеме
     SESSION_REQUIRED_FIELDS = {"Acct-Unique-Session-Id", "Acct-Start-Time"}
 
     SESSION_STRING_FIELDS = {
