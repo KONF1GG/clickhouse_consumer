@@ -50,8 +50,9 @@ class ClickHouseClient:
                 validated_data = DataValidator.validate_session_data(item)
                 validated_rows.append(prepare_session_row(validated_data))
 
+            columns_str = ", ".join(f"`{col}`" for col in SESSION_FIELDS)
             self.client.execute(
-                "INSERT INTO radius.radius_sessions (*) VALUES",
+                f"INSERT INTO radius.radius_sessions ({columns_str}) VALUES",
                 validated_rows,
             )
 
